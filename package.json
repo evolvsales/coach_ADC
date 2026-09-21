@@ -1,0 +1,6 @@
+{
+  "name": "coach-prospeccao-webapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Coach de Prospecção — simulador de ligação de vendas para manutenção preditiva, com IA real via API da Anthropic."
+}

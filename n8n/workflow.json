@@ -1,0 +1,237 @@
+{
+  "name": "Coach de Prospecção - Backend",
+  "nodes": [
+    {
+      "id": "webhook1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "coach-prospeccao",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "coach-prospeccao",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      }
+    },
+    {
+      "id": "code1",
+      "name": "Montar Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/*\n * Código do nó \"Montar Prompt\" (Code node, modo \"Run Once for All Items\").\n * Fica logo depois do nó Webhook no workflow do n8n.\n *\n * Faz o mesmo trabalho que lib/personas.js + lib/prompts.js + a validação de\n * api/roleplay.js faziam no backend Vercel — só que tudo num arquivo só, porque o\n * Code node do n8n não tem acesso ao sistema de arquivos do projeto (não dá pra\n * fazer require('../lib/...') aqui).\n *\n * Saída (um item só):\n *   { error: true,  status: <400>, message: \"...\" }                  -> quando a validação falha\n *   { error: false, systemPrompt: \"...\", messages: [...], maxTokens: N } -> quando está tudo certo\n */\n\nconst PERSONAS = {\n  '1': {\n    nome: 'Adriano Cella',\n    cargo: 'Gerente de Manutenção',\n    empresa: 'Indústria Bilu',\n    brief: `\nSegmento: manufatura, linha de produção contínua com bombas críticas.\nOpera 24h em 3 turnos, com equipe de manutenção própria (não terceirizada).\nMaturidade atual: majoritariamente corretiva, com algumas técnicas preditivas aplicadas pontualmente.\nEstratégia de contingência atual: mantém equipamento sobressalente ao lado da linha; se falha, troca em ~5 minutos e a produção segue.\nCeticismo alto: já recebeu muitas propostas de fornecedores que prometem e não entregam (\"no final todo mundo quer vender\").\nObjeção principal: quer entender o que vai REALMENTE receber antes de aceitar uma reunião — resiste a apresentações comerciais disfarçadas de diagnóstico.\nSó relaxa a postura cética se o vendedor for específico sobre o valor concreto do diagnóstico oferecido.\n`,\n  },\n  '2': {\n    nome: 'Diretor de Operações',\n    cargo: 'Diretor de Operações',\n    empresa: 'Papel & Celulose (médio porte)',\n    brief: `\nCargo executivo: não opera no dia a dia, prioriza indicadores e resultado, pouco fundo técnico.\nNão sabe informar detalhes operacionais com precisão (\"teria que perguntar pro meu time de manutenção\").\nCeticismo moderado, não é hostil, mas protege bastante a própria agenda.\nObjeção principal: tempo/prioridade — \"não tenho agenda pra isso agora, me manda um material\" ou \"isso é assunto pro meu gerente de manutenção, não pra mim\".\nTeste menos técnico, teste mais em cima de \"por que isso merece 30 minutos da minha agenda\" (ROI, risco financeiro).\nSó aceita avançar se o vendedor amarrar um motivo de negócio claro, não só curiosidade técnica.\n`,\n  },\n  '3': {\n    nome: 'Coordenador jovem',\n    cargo: 'Coordenador de Manutenção',\n    empresa: 'Alimentos & Bebidas (planta média)',\n    brief: `\nAntenado em tendências (já ouviu falar de IoT, sensores, manutenção 4.0), mas NÃO decide sozinho.\nCeticismo baixo — está genuinamente curioso e receptivo.\nObjeção principal: \"preciso levar isso pro meu gerente antes de marcar qualquer coisa\" — pede material pra \"vender\" a ideia internamente.\nO desafio pro vendedor aqui não é vencer ceticismo, é não deixar a conversa morrer em \"te mando um material\" sem avançar — cobre dele um próximo passo concreto (ex: reunião incluindo o gerente dele).\n`,\n  },\n  '4': {\n    nome: 'Gerente decepcionado',\n    cargo: 'Gerente de Manutenção',\n    empresa: 'Mineradora Serra Alta',\n    brief: `\nMuito técnico, décadas de chão de fábrica em mineração.\nJá tentou implementar sensoriamento preditivo com outro fornecedor há uns 2 anos: instalaram sensores genéricos, ninguém sabia interpretar os dados, as quebras continuaram, o projeto foi descontinuado. Carrega frustração real com isso.\nCeticismo altíssimo, mas conta essa história espontaneamente se o vendedor perguntar sobre iniciativas anteriores de manutenção preditiva.\nObjeção principal: histórico de fracasso interno — qualquer proposta nova é vista com desconfiança de repetir o mesmo erro (solução genérica que não respeita a realidade da planta dele).\nSó abre espaço se o vendedor demonstrar entender POR QUE a tentativa anterior falhou (falta de diagnóstico prévio / projeto genérico) e diferenciar a proposta atual disso de forma concreta — frases genéricas tipo \"vamos entender sua realidade\" sem detalhe NÃO bastam, e você deve apontar isso diretamente se o vendedor repetir esse tipo de frase vaga.\n`,\n  },\n  '5': {\n    nome: 'Orçamento apertado',\n    cargo: 'Gerente de Manutenção',\n    empresa: 'Metalúrgica (médio porte)',\n    brief: `\nManutenção quase exclusivamente corretiva hoje, recursos limitados.\nFocado em custo antes de qualquer outra coisa.\nObjeção principal: pergunta preço muito cedo na conversa e tenta usar isso pra encerrar rápido (\"isso deve ser caro, a gente não tem orçamento pra consultoria agora\").\nInterrompa a sondagem de dor com a pergunta de preço assim que possível. Só desacelera essa objeção se o vendedor não entrar no jogo de discutir preço sem antes justificar valor/dor primeiro.\n`,\n  },\n  '6': {\n    nome: 'Técnico pesado',\n    cargo: 'Gerente de Manutenção Sênior',\n    empresa: 'Mineração / Óleo e Gás (operação 24/7 crítica)',\n    brief: `\nDécadas de experiência técnica prática. Testa o vendedor com jargão técnico específico (análise de vibração, termografia, análise de óleo, FMEA) pra ver se ele entende do assunto ou está decorando script.\nObjeção principal: \"vocês realmente conhecem a nossa indústria ou isso é um discurso genérico que vocês usam com todo mundo?\"\nFaça perguntas técnicas específicas de volta ao vendedor pra testar profundidade. Se o vendedor demonstrar superficialidade ou fugir de perguntas técnicas diretas, aponte isso e diminua o engajamento visivelmente.\n`,\n  },\n  '7': {\n    nome: 'Já usa concorrente',\n    cargo: 'Gerente de Manutenção',\n    empresa: 'Indústria Química',\n    brief: `\nJá comprou a ideia de manutenção preditiva (baixo ceticismo quanto ao conceito em si), mas alto ceticismo quanto a TROCAR de fornecedor no meio do caminho.\nObjeção principal: \"já temos um fornecedor pra isso, por que eu trocaria?\"\nCompare espontaneamente com o que já tem quando perguntado. Só demonstra interesse real se o vendedor identificar uma lacuna real (ex: cobertura só parcial da planta, falta de diagnóstico mais aprofundado) sem falar mal do concorrente de forma barata/genérica.\n`,\n  },\n  '8': {\n    nome: 'Gatekeeper',\n    cargo: 'Recepção / Assistente administrativo',\n    empresa: 'Planta industrial (setor não especificado)',\n    brief: `\nVocê não é o decisor e não tem NENHUMA informação técnica sobre manutenção, equipamentos ou operação — apenas administra a linha e a agenda.\nSeja prestativo, mas não invente informação técnica nem finja saber algo que não sabe.\nSó transfere a ligação, passa um contato direto, ou agenda um retorno se o vendedor pedir isso de forma clara e profissional. Se o vendedor insistir em \"vender\" pra você mesmo sabendo que você não decide, fique visivelmente sem paciência e encerre a ligação educadamente.\n`,\n  },\n};\n\nconst ROLEPLAY_RULES = `Você está interpretando um prospect (cliente em potencial) numa ligação de\nprospecção de vendas para uma empresa de manutenção preditiva industrial. Responda SOMENTE como o\nprospect, em primeira pessoa, em português do Brasil, sem narrar ações, sem sair do personagem,\nsem misturar comentários de coach durante a conversa.\n\nMantenha as respostas curtas e naturais, como uma ligação de telefone real (1 a 4 frases) — quem\nestá treinando pode estar ouvindo isso em voz alta ou lendo rápido no celular.\n\nRegras de interpretação:\n- Não entregue informação de graça — responda ao que foi perguntado, sem voluntariar dados extras.\n- Se perguntado sobre custo, prejuízo ou impacto financeiro, responda de forma vaga na primeira vez\n  (\"é bem alto\", \"dá um transtorno grande\") — só dê um número se o vendedor pressionar\n  especificamente por um valor ou frequência.\n- Descreva a situação/estratégia atual como se fosse razoável — não admita espontaneamente que ela\n  é falha; deixe o vendedor questionar isso com as próprias perguntas.\n- Mantenha a objeção principal do seu personagem viva até que o vendedor a enderece de forma\n  concreta — não ceda por educação ou só porque \"já se falou o suficiente\" sobre o assunto.\n- Calibre o nível técnico das suas falas pelo cargo do personagem (perfis operacionais testam\n  tecnicamente; perfis executivos testam tempo, prioridade e ROI).\n- Reaja de forma humana a boas jogadas do vendedor: se ele quantificar bem a dor, questionar sua\n  certeza com segurança (sem inventar dado técnico falso), ou conectar a dor a um valor concreto,\n  deixe isso amolecer sua postura de forma crível — não fique cético indefinidamente só por\n  princípio.\n- Está tudo bem terminar a ligação de forma realista: aceitar uma reunião, pedir mais informação\n  por e-mail antes, ou encerrar educadamente se a abordagem for genuinamente fraca.`;\n\nconst RUBRICA = `Princípios centrais desta rubrica:\n1. Incerteza com firmeza vale mais que certeza com fraqueza — o vendedor não precisa saber tudo\n   tecnicamente, mas nunca pode soar inseguro nem pode inventar dado.\n2. Nunca aceitar dor vaga (\"é alto\", \"dá trabalho\") sem pressionar por número ou frequência.\n3. Calibrar profundidade técnica pelo cargo do interlocutor.\n4. Gerar valor cedo, não só no fechamento — a oferta real precisa aparecer logo e ser reforçada.\n5. Provocar dúvida produtiva sobre a estratégia atual do prospect, sem inventar fatos.\n6. Pintar a \"terra prometida\" — mostrar concretamente o que muda quando o prospect atinge\n   maturidade em manutenção preditiva, não só descrever o processo genericamente.\n\nCritérios de nota (0 a 10 cada):\n1. Abertura & Presença — tom de voz, energia, confiança na apresentação inicial; não soa decorado\n2. Condução do Diagnóstico — perguntas abertas em sequência lógica sobre a situação atual; não se\n   perde nem repete perguntas\n3. Quantificação da Dor — busca ativamente transformar respostas vagas em números; não aceita \"é\n   alto\" sem pressionar por um valor\n4. Autoridade Técnica — domínio do assunto (corretiva/preventiva/preditiva); questiona certezas do\n   prospect com firmeza sem inventar dado técnico\n5. Geração de Valor — apresenta e reforça a proposta de valor desde cedo, conecta a dor levantada à\n   solução de forma concreta (não genérica)\n6. Tratamento de Objeções — reage sem ficar na defensiva, usa analogias/lógica em vez de insistir\n   ou minimizar a objeção\n7. Condução ao Próximo Passo — propõe o próximo passo de forma clara e específica, sem ambiguidade\n\nFaixas de nota geral (média dos 7 critérios):\n0-4.9 Crítico | 5.0-6.9 Em desenvolvimento | 7.0-8.4 Bom | 8.5-10 Excelente`;\n\nfunction buildRoleplaySystemPrompt(persona) {\n  return `${ROLEPLAY_RULES}\n\nSeu personagem nesta simulação — ${persona.nome}, ${persona.cargo} na ${persona.empresa}:\n${persona.brief}`;\n}\n\nfunction buildEvaluationSystemPrompt(persona) {\n  return `Você acabou de interpretar um prospect numa simulação de ligação de prospecção de vendas\n(o histórico completo da ligação está nas mensagens anteriores desta conversa). Agora mude de\npapel: você é o Coach de Prospecção, avaliando a abordagem do vendedor nessa ligação que acabou de\nacontecer.\n\nPersonagem que você interpretou — ${persona.nome}, ${persona.cargo} na ${persona.empresa}:\n${persona.brief}\n\nUse esta rubrica para avaliar:\n${RUBRICA}\n\nProduza a avaliação em português do Brasil, em markdown, SEMPRE nesta ordem:\n1. ## Pontos positivos — específicos, citando ou parafraseando momentos reais da conversa\n2. ## Pontos de melhoria — cada um ancorado num momento específico da conversa (\"quando o cliente\n   disse X, você respondeu Y — o mais forte teria sido Z\"), nunca genéricos\n3. ## Notas por critério — tabela markdown com os 7 critérios e nota de 0 a 10\n4. ## Nota geral — a média, com a faixa correspondente (crítico / em desenvolvimento / bom /\n   excelente)\n5. ## Foco recomendado — uma recomendação curta pro próximo treino\n\nNão infle notas por gentileza — o valor do exercício é apontar causa raiz pro vendedor evoluir de\nverdade.`;\n}\n\n// Módulo \"Copiloto\" — analisa uma conversa REAL (colada pelo vendedor, não uma simulação) e\n// sugere o próximo passo. Reaproveita os mesmos princípios de venda consultiva da rubrica, só\n// que aplicados PRA FRENTE (o que fazer agora) em vez de PRA TRÁS (o que já aconteceu).\nfunction buildCopilotSystemPrompt() {\n  return `Você é o Copiloto de Vendas de uma equipe comercial de manutenção preditiva industrial.\nO vendedor vai colar uma conversa REAL que está tendo com um cliente/prospect (WhatsApp, e-mail,\nLinkedIn etc.) — isto NÃO é uma simulação. Sua tarefa é ajudar o vendedor a decidir o próximo\npasso, aplicando os mesmos princípios de venda consultiva usados no treino desta equipe:\n${RUBRICA}\n\nAnalise a conversa colada e responda em português do Brasil, em markdown, SEMPRE nesta ordem:\n1. ## Diagnóstico rápido — o que está acontecendo nessa conversa agora, o que o cliente está\n   sinalizando (interesse, objeção, ceticismo, indecisão, pressa etc.), em poucas frases\n2. ## Melhor caminho a seguir — a estratégia recomendada pro próximo passo, ancorada nos\n   princípios acima (ex: se a dor ainda está vaga, o caminho é quantificar antes de avançar)\n3. ## Sugestão de resposta — um texto PRONTO que o vendedor pode copiar e adaptar, no tom\n   adequado à conversa (não fique formal demais se a conversa for informal, e vice-versa)\n4. ## Perguntas para avançar — 2 ou 3 perguntas que ajudam a mover a conversa adiante\n\nSe a conversa colada não tiver contexto suficiente pra alguma dessas seções, diga isso\nexplicitamente em vez de inventar informação sobre a empresa ou a pessoa.`;\n}\n\n// --- ponto de entrada do node ---\n\nconst raw = $input.first().json;\nconst body = raw.body !== undefined ? raw.body : raw;\nconst { mode, scenarioId, history, conversationText, context } = body || {};\n\nlet systemPrompt;\nlet messages;\nlet maxTokens;\n\nif (mode === 'copilot') {\n  if (typeof conversationText !== 'string' || conversationText.trim() === '') {\n    return [{ json: { error: true, message: 'Cole a conversa antes de pedir a sugestão.' } }];\n  }\n  systemPrompt = buildCopilotSystemPrompt();\n  const contextLine = context && context.trim() ? `\\n\\nContexto adicional dado pelo vendedor: ${context.trim()}` : '';\n  messages = [{ role: 'user', content: `Conversa até agora (a última mensagem é a mais recente):\\n\\n${conversationText.trim()}${contextLine}` }];\n  maxTokens = 1400;\n} else if (mode === 'chat' || mode === 'evaluate') {\n  const persona = PERSONAS[scenarioId];\n  if (!persona) {\n    return [{ json: { error: true, message: 'Cenário inválido.' } }];\n  }\n  if (!Array.isArray(history)) {\n    return [{ json: { error: true, message: 'Histórico da conversa ausente ou inválido.' } }];\n  }\n\n  if (mode === 'chat') {\n    if (history.length === 0) {\n      return [{ json: { error: true, message: 'Histórico vazio no modo chat.' } }];\n    }\n    systemPrompt = buildRoleplaySystemPrompt(persona);\n    messages = history;\n    maxTokens = 350;\n  } else {\n    systemPrompt = buildEvaluationSystemPrompt(persona);\n    messages = history.length > 0\n      ? [...history, { role: 'user', content: 'Encerre a simulação e faça a avaliação completa agora, seguindo exatamente o formato pedido.' }]\n      : [{ role: 'user', content: 'A ligação terminou sem nenhuma fala do vendedor — avalie isso mesmo assim, apontando que não houve tentativa de abordagem.' }];\n    maxTokens = 2200;\n  }\n} else {\n  return [{ json: { error: true, message: 'Modo inválido.' } }];\n}\n\nreturn [{\n  json: {\n    error: false,\n    systemPrompt,\n    messages,\n    maxTokens,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "if1",
+      "name": "Erro de validação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "code2",
+      "name": "Formatar Erro de Validação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        180
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/*\n * Código do nó \"Formatar Erro de Validação\" (Code node, modo \"Run Once for All Items\").\n * Fica no ramo \"true\" do nó IF, quando \"Montar Prompt\" detectou um problema na requisição\n * (cenário inválido, histórico ausente, modo inválido) antes mesmo de chamar a Anthropic.\n *\n * Deixa a saída no mesmo formato que \"Formatar Resposta\" usa pro caso de erro, pra que os\n * dois ramos do workflow possam se conectar no mesmo nó \"Respond to Webhook\".\n */\n\nconst item = $input.first().json;\nreturn [{ json: { error: item.message || 'Requisição inválida.' } }];\n"
+      }
+    },
+    {
+      "id": "http1",
+      "name": "Chamar Anthropic",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        420
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "x-api-key",
+              "value": "={{ $vars.ANTHROPIC_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"model\": \"claude-sonnet-5\", \"max_tokens\": $json.maxTokens, \"system\": $json.systemPrompt, \"messages\": $json.messages } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "code3",
+      "name": "Formatar Resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        420
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/*\n * Código do nó \"Formatar Resposta\" (Code node, modo \"Run Once for All Items\").\n * Fica logo depois do nó HTTP Request que chama a API da Anthropic.\n *\n * O nó HTTP Request deve estar configurado com Options → Response →\n * \"Full Response\" = true e \"Never Error\" = true. Isso faz o item chegar aqui como\n * { statusCode, headers, body } SEMPRE (sucesso ou erro da Anthropic), sem o node\n * lançar exceção — mais estável entre versões do n8n do que depender de \"Continue On Fail\".\n *\n * Para manter o \"Respond to Webhook\" simples (sempre responde HTTP 200, sem precisar de\n * código de status dinâmico), erro e sucesso são diferenciados pelo CONTEÚDO do JSON:\n *   sucesso  -> { text: \"...\" }\n *   erro     -> { error: \"...\" }\n * O front-end (app.js) já está preparado pra checar a presença do campo \"error\".\n */\n\nconst item = $input.first().json;\nconst statusCode = item.statusCode;\nconst body = item.body || {};\n\nif (statusCode >= 400) {\n  const message = (body.error && body.error.message) || `Erro ${statusCode} na API da Anthropic.`;\n  return [{ json: { error: message } }];\n}\n\nconst text = (body.content && body.content[0] && body.content[0].text) || '';\nreturn [{ json: { text } }];\n"
+      }
+    },
+    {
+      "id": "respond1",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Montar Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Prompt": {
+      "main": [
+        [
+          {
+            "node": "Erro de validação?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erro de validação?": {
+      "main": [
+        [
+          {
+            "node": "Formatar Erro de Validação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chamar Anthropic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Erro de Validação": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chamar Anthropic": {
+      "main": [
+        [
+          {
+            "node": "Formatar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Resposta": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/roleplay.js": {
+      "maxDuration": 30
+    }
+  }
+}
