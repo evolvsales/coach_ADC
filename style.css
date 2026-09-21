@@ -8,6 +8,17 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
+/* Layout em grid de 3 linhas (header / tabs / conteúdo) preenchendo exatamente a altura da
+   tela, sem "números mágicos" de px a subtrair — se o header ou as abas mudarem de altura no
+   futuro, o conteúdo se ajusta sozinho. 100dvh (onde suportado) evita que a barra de endereço
+   do navegador do celular corte o rodapé, já que ela conta a altura visível de verdade. */
+body {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  height: 100vh;
+  height: 100dvh;
+}
+
 header {
   background: #1f2937;
   color: white;
@@ -21,6 +32,7 @@ header h1 { margin: 0; font-size: 1.25rem; }
   display: flex;
   max-width: 640px;
   margin: 0 auto;
+  width: 100%;
   border-bottom: 1px solid #e2e2e2;
   background: white;
 }
@@ -43,9 +55,11 @@ header h1 { margin: 0; font-size: 1.25rem; }
 
 main {
   max-width: 640px;
+  width: 100%;
   margin: 0 auto;
   padding: 16px;
-  min-height: calc(100vh - 88px);
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
