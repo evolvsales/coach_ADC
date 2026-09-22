@@ -3,6 +3,9 @@
 // (Settings do node Webhook -> aba "Production URL").
 const N8N_WEBHOOK_URL = 'https://143.95.222.247.nip.io/webhook/coach-prospeccao';
 
+// URL do segundo webhook (leitura do histórico de sessões pro Dashboard) — nó "Webhook Dashboard".
+const N8N_DASHBOARD_URL = 'https://143.95.222.247.nip.io/webhook/coach-prospeccao-dashboard';
+
 // Lista pública dos cenários — mantenha sincronizada com n8n/code-montar-prompt.js no backend.
 // Só o essencial fica aqui (nada sobre ceticismo/objeção), pra não entregar "cola" ao vendedor.
 const PERSONA_LIST = [
@@ -27,8 +30,24 @@ const SCENES = {
   '8': 'Você está ligando para uma planta industrial. Quem atende é da recepção — o decisor não está disponível no momento. O telefone está chamando...',
 };
 
+function getVendedorNome() {
+  try {
+    return localStorage.getItem('coach_vendedor_nome') || '';
+  } catch (e) {
+    return '';
+  }
+}
+function setVendedorNome(nome) {
+  try {
+    localStorage.setItem('coach_vendedor_nome', nome);
+  } catch (e) {
+    // localStorage indisponível (modo privado, etc.) — segue sem persistir, sem quebrar a página
+  }
+}
+
 let state = {
-  activeTab: 'treino', // 'treino' | 'copiloto'
+  activeTab: 'treino', // 'treino' | 'copiloto' | 'dashboard'
+  vendedorNome: getVendedorNome(),
 
   // aba "Treinar"
   screen: 'select', // 'select' | 'chat' | 'eval'
@@ -41,6 +60,11 @@ let state = {
   copilotoConversationText: '',
   copilotoContext: '',
   copilotoResult: '',
+
+  // aba "Dashboard"
+  dashboardLoading: false,
+  dashboardError: '',
+  dashboardSessions: null, // null = ainda não buscou
 
   loading: false,
 };
@@ -67,6 +91,11 @@ function render() {
     return;
   }
 
+  if (state.activeTab === 'dashboard') {
+    renderDashboard();
+    return;
+  }
+
   if (state.screen === 'select') renderSelect();
   else if (state.screen === 'chat') renderChat();
   else if (state.screen === 'eval') renderEval();
@@ -74,6 +103,10 @@ function render() {
 
 function renderSelect() {
   app.innerHTML = `
+    <div class="nome-field">
+      <label for="nomeInput">Seu nome</label>
+      <input type="text" id="nomeInput" placeholder="ex: Agnes Cristina" value="${escapeHtml(state.vendedorNome)}" />
+    </div>
     <p class="intro">Escolha um cenário pra treinar:</p>
     <div class="persona-grid">
       ${PERSONA_LIST.map(p => `
@@ -85,8 +118,20 @@ function renderSelect() {
       `).join('')}
     </div>
   `;
+  const nomeInput = document.getElementById('nomeInput');
+  nomeInput.addEventListener('input', () => {
+    state.vendedorNome = nomeInput.value;
+    setVendedorNome(nomeInput.value);
+  });
   app.querySelectorAll('.persona-card').forEach(btn => {
-    btn.addEventListener('click', () => startScenario(btn.dataset.id));
+    btn.addEventListener('click', () => {
+      if (!state.vendedorNome.trim()) {
+        alert('Preenche seu nome antes de começar — assim o treino fica registrado certinho no dashboard.');
+        nomeInput.focus();
+        return;
+      }
+      startScenario(btn.dataset.id);
+    });
   });
 }
 
@@ -181,7 +226,7 @@ async function endAndEvaluate() {
     const resp = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'evaluate', scenarioId: state.scenarioId, history: state.history }),
+      body: JSON.stringify({ mode: 'evaluate', scenarioId: state.scenarioId, history: state.history, vendedorNome: state.vendedorNome }),
     });
     const data = await resp.json();
     state.loading = false;
@@ -306,6 +351,140 @@ function renderCopilotoResult() {
     });
     render();
   });
+}
+
+async function renderDashboard() {
+  if (state.dashboardSessions === null && !state.dashboardLoading) {
+    fetchDashboard();
+    return; // fetchDashboard() já chama render() de novo quando terminar
+  }
+
+  if (state.dashboardLoading) {
+    app.innerHTML = `<p class="intro">Carregando histórico...</p>`;
+    return;
+  }
+
+  if (state.dashboardError) {
+    app.innerHTML = `
+      <p class="intro">Não consegui carregar o histórico.</p>
+      <p class="copiloto-hint">${escapeHtml(state.dashboardError)}</p>
+      <button id="retryBtn" class="primary-btn" type="button">Tentar de novo</button>
+    `;
+    document.getElementById('retryBtn').addEventListener('click', () => {
+      state.dashboardSessions = null;
+      render();
+    });
+    return;
+  }
+
+  const sessions = state.dashboardSessions || [];
+
+  if (sessions.length === 0) {
+    app.innerHTML = `<p class="intro">Ainda não tem nenhuma sessão de treino registrada.</p>`;
+    return;
+  }
+
+  // Agrega por vendedor no próprio navegador — o backend só devolve a lista crua.
+  const porVendedor = {};
+  sessions.forEach((s) => {
+    const nome = s.vendedor_nome || 'Não informado';
+    if (!porVendedor[nome]) porVendedor[nome] = [];
+    porVendedor[nome].push(s);
+  });
+  const resumo = Object.keys(porVendedor).sort().map((nome) => {
+    const lista = porVendedor[nome];
+    const media = lista.reduce((sum, s) => sum + Number(s.nota_geral || 0), 0) / lista.length;
+    const ultima = lista[0]; // já vem ordenado por mais recente primeiro
+    return { nome, total: lista.length, media, ultima };
+  });
+
+  app.innerHTML = `
+    <p class="intro">Resumo por vendedor</p>
+    <div class="dash-summary">
+      ${resumo.map((r) => `
+        <div class="dash-card">
+          <strong>${escapeHtml(r.nome)}</strong>
+          <span class="dash-stat">${r.total} sessão(ões) · média ${r.media.toFixed(1)}</span>
+          <span class="dash-stat">última: ${escapeHtml(r.ultima.faixa || '')} (${r.ultima.nota_geral}) em ${formatarData(r.ultima.criado_em)}</span>
+        </div>
+      `).join('')}
+    </div>
+
+    <p class="intro" style="margin-top:20px;">Sessões recentes</p>
+    <div class="dash-list">
+      ${sessions.slice(0, 40).map((s, i) => `
+        <div class="dash-row" data-idx="${i}">
+          <div class="dash-row-head">
+            <span class="dash-row-nome">${escapeHtml(s.vendedor_nome || 'Não informado')}</span>
+            <span class="dash-row-nota dash-faixa-${faixaClasse(s.faixa)}">${s.nota_geral}</span>
+          </div>
+          <div class="dash-row-sub">${escapeHtml(nomePersona(s.scenario_id))} · ${formatarData(s.criado_em)}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  app.querySelectorAll('.dash-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const idx = Number(row.dataset.idx);
+      const s = sessions[idx];
+      const existing = row.nextElementSibling;
+      if (existing && existing.classList.contains('dash-row-detail')) {
+        existing.remove();
+        return;
+      }
+      const detail = document.createElement('div');
+      detail.className = 'dash-row-detail eval-report';
+      detail.innerHTML = simpleMarkdown(s.avaliacao_completa || '(sem detalhe salvo)');
+      row.after(detail);
+    });
+  });
+}
+
+async function fetchDashboard() {
+  state.dashboardLoading = true;
+  state.dashboardError = '';
+  render();
+  try {
+    const resp = await fetch(N8N_DASHBOARD_URL, { method: 'GET' });
+    const data = await resp.json();
+    state.dashboardLoading = false;
+    if (!resp.ok || data.error) {
+      state.dashboardError = data.error || 'falha desconhecida';
+      state.dashboardSessions = [];
+    } else {
+      state.dashboardSessions = data.sessions || [];
+    }
+  } catch (err) {
+    state.dashboardLoading = false;
+    state.dashboardError = err.message;
+    state.dashboardSessions = [];
+  }
+  render();
+}
+
+function nomePersona(scenarioId) {
+  const p = PERSONA_LIST.find((p) => p.id === String(scenarioId));
+  return p ? p.nome : `Cenário ${scenarioId}`;
+}
+
+function faixaClasse(faixa) {
+  const f = (faixa || '').toLowerCase();
+  if (f.includes('crítico') || f.includes('critico')) return 'critico';
+  if (f.includes('desenvolvimento')) return 'desenvolvimento';
+  if (f.includes('bom')) return 'bom';
+  if (f.includes('excelente')) return 'excelente';
+  return '';
+}
+
+function formatarData(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return iso;
+  }
 }
 
 function setupMic() {

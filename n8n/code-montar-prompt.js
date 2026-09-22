@@ -178,7 +178,8 @@ ${persona.brief}
 Use esta rubrica para avaliar:
 ${RUBRICA}
 
-Produza a avaliação em português do Brasil, em markdown, SEMPRE nesta ordem:
+Produza a avaliação em português do Brasil, em markdown, SEMPRE com EXATAMENTE estas 6 seções,
+nesta ordem — as 6 são obrigatórias, nenhuma é opcional ou dispensável, incluindo a última:
 1. ## Pontos positivos — específicos, citando ou parafraseando momentos reais da conversa
 2. ## Pontos de melhoria — cada um ancorado num momento específico da conversa ("quando o cliente
    disse X, você respondeu Y — o mais forte teria sido Z"), nunca genéricos
@@ -186,6 +187,14 @@ Produza a avaliação em português do Brasil, em markdown, SEMPRE nesta ordem:
 4. ## Nota geral — a média, com a faixa correspondente (crítico / em desenvolvimento / bom /
    excelente)
 5. ## Foco recomendado — uma recomendação curta pro próximo treino
+6. Um bloco de código \`\`\`json (SEM cabeçalho markdown antes dele, sem nenhum texto depois dele —
+   ele precisa ser literalmente a última coisa na sua resposta) com as mesmas notas da seção 3 em
+   formato estruturado, exatamente com estas chaves e nesta forma, números com até 1 casa decimal:
+   \`\`\`json
+   {"abertura": 0, "diagnostico": 0, "quantificacao": 0, "autoridade": 0, "valor": 0, "objecoes": 0, "proximoPasso": 0, "notaGeral": 0, "faixa": "crítico | em desenvolvimento | bom | excelente"}
+   \`\`\`
+   Essa seção 6 é lida por um programa, não por uma pessoa — por isso não pode faltar em nenhuma
+   avaliação, mesmo que as seções anteriores já tenham comunicado tudo em texto.
 
 Não infle notas por gentileza — o valor do exercício é apontar causa raiz pro vendedor evoluir de
 verdade.`;
@@ -253,7 +262,7 @@ if (mode === 'copilot') {
     messages = history.length > 0
       ? [...history, { role: 'user', content: 'Encerre a simulação e faça a avaliação completa agora, seguindo exatamente o formato pedido.' }]
       : [{ role: 'user', content: 'A ligação terminou sem nenhuma fala do vendedor — avalie isso mesmo assim, apontando que não houve tentativa de abordagem.' }];
-    maxTokens = 2200;
+    maxTokens = 3000;
   }
 } else {
   return [{ json: { error: true, message: 'Modo inválido.' } }];
