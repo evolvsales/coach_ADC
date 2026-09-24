@@ -9,4 +9,4 @@
  */
 
 const text = $('Preparar Gravação').item.json.text;
-return [{ json: { text } }];
+return [{ json: { text, saved: true } }];

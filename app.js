@@ -53,7 +53,7 @@ let state = {
   screen: 'select', // 'select' | 'chat' | 'eval'
   scenarioId: null,
   history: [], // {role: 'user'|'assistant', content: string} — só falas reais, sem a cena
-  evaluation: '',
+  evaluation: '', evaluationSaved: null,
 
   // aba "Copiloto"
   copilotoScreen: 'form', // 'form' | 'result'
@@ -136,7 +136,7 @@ function renderSelect() {
 }
 
 function startScenario(id) {
-  Object.assign(state, { screen: 'chat', scenarioId: id, history: [], evaluation: '', loading: false });
+  Object.assign(state, { screen: 'chat', scenarioId: id, history: [], evaluation: '', evaluationSaved: null, loading: false });
   render();
 }
 
@@ -156,7 +156,7 @@ function renderChat() {
   `;
   renderChatLog();
   document.getElementById('backBtn').addEventListener('click', () => {
-    Object.assign(state, { screen: 'select', scenarioId: null, history: [], evaluation: '', loading: false });
+    Object.assign(state, { screen: 'select', scenarioId: null, history: [], evaluation: '', evaluationSaved: null, loading: false });
     render();
   });
   document.getElementById('sendBtn').addEventListener('click', sendMessage);
@@ -238,6 +238,7 @@ async function endAndEvaluate() {
       return;
     }
     state.evaluation = data.text;
+    state.evaluationSaved = data.saved === true;
     state.screen = 'eval';
     render();
   } catch (err) {
@@ -248,14 +249,18 @@ async function endAndEvaluate() {
 }
 
 function renderEval() {
+  const saveBadge = state.evaluationSaved
+    ? `<p class="save-status save-ok">✅ Sessão salva no dashboard.</p>`
+    : `<p class="save-status save-fail">⚠️ Não foi possível salvar esta sessão no dashboard (a avaliação abaixo é válida, só não ficou registrada no histórico). Se isso se repetir, avisa o time técnico.</p>`;
   app.innerHTML = `
+    ${saveBadge}
     <div class="eval-report">${simpleMarkdown(state.evaluation)}</div>
     <div class="eval-actions">
       <button id="newRunBtn" class="primary-btn" type="button">Nova simulação</button>
     </div>
   `;
   document.getElementById('newRunBtn').addEventListener('click', () => {
-    Object.assign(state, { screen: 'select', scenarioId: null, history: [], evaluation: '', loading: false });
+    Object.assign(state, { screen: 'select', scenarioId: null, history: [], evaluation: '', evaluationSaved: null, loading: false });
     render();
   });
 }
@@ -501,19 +506,11 @@ function setupMic() {
     return;
   }
 
-  const recognition = new SpeechRecognition();
-  recognition.lang = 'pt-BR';
-  recognition.interimResults = false;
-  // "continuous" impede o reconhecimento de encerrar sozinho na primeira pausa da fala (respirar,
-  // pensar um pouco) — sem isso, qualquer silêncio curto já cortava a gravação no meio da frase.
-  // Com isso ligado, quem decide quando parar é a pessoa, clicando de novo no microfone.
-  recognition.continuous = true;
-
-  // Guarda o texto que já estava no campo antes de começar a gravar — com "continuous" o
-  // onresult dispara várias vezes (um evento por trecho reconhecido), não uma vez só no final,
-  // então precisamos recompor o texto completo a cada evento em vez de só concatenar.
+  // Guarda o texto que já estava no campo antes de começar a gravar, pra continuar a partir
+  // dali (e não apagar o que a pessoa já tinha digitado/falado antes).
   let baseText = '';
   let listening = false;
+  let recognition = null;
 
   function setListening(value) {
     listening = value;
@@ -521,11 +518,36 @@ function setupMic() {
     hint.textContent = value ? 'Ouvindo... toque no microfone de novo quando terminar de falar.' : '';
   }
 
-  micBtn.addEventListener('click', () => {
-    if (listening) {
-      try { recognition.stop(); } catch (e) {}
-      return;
-    }
+  // Cria uma instância NOVA a cada gravação, em vez de reaproveitar uma só pra vida toda da tela
+  // de chat. Reaproveitar a mesma instância entre start()/stop() sucessivos fazia o texto de uma
+  // gravação anterior (já enviada como mensagem) voltar a aparecer grudado na gravação seguinte —
+  // o navegador nem sempre limpa direito o histórico de resultados internos ao reiniciar a mesma
+  // instância. Uma instância nova por gravação garante que cada uma começa do zero.
+  function startRecording() {
+    recognition = new SpeechRecognition();
+    recognition.lang = 'pt-BR';
+    recognition.interimResults = false;
+    // "continuous" impede o reconhecimento de encerrar sozinho na primeira pausa da fala (respirar,
+    // pensar um pouco) — sem isso, qualquer silêncio curto já cortava a gravação no meio da frase.
+    // Com isso ligado, quem decide quando parar é a pessoa, clicando de novo no microfone.
+    recognition.continuous = true;
+
+    recognition.onresult = (e) => {
+      let transcript = '';
+      for (let i = 0; i < e.results.length; i++) {
+        transcript += e.results[i][0].transcript;
+      }
+      input.value = baseText ? `${baseText} ${transcript}` : transcript;
+    };
+    recognition.onerror = () => {
+      // "no-speech" e afins acontecem o tempo todo em silêncios normais — não são erro de verdade,
+      // só reseta o estado do botão sem interromper com alerta.
+      setListening(false);
+    };
+    recognition.onend = () => {
+      setListening(false);
+    };
+
     baseText = input.value;
     setListening(true);
     try {
@@ -533,22 +555,15 @@ function setupMic() {
     } catch (e) {
       setListening(false);
     }
-  });
-  recognition.onresult = (e) => {
-    let transcript = '';
-    for (let i = 0; i < e.results.length; i++) {
-      transcript += e.results[i][0].transcript;
+  }
+
+  micBtn.addEventListener('click', () => {
+    if (listening) {
+      try { recognition.stop(); } catch (e) {}
+      return;
     }
-    input.value = baseText ? `${baseText} ${transcript}` : transcript;
-  };
-  recognition.onerror = () => {
-    // "no-speech" e afins acontecem o tempo todo em silêncios normais — não são erro de verdade,
-    // só reseta o estado do botão sem interromper com alerta.
-    setListening(false);
-  };
-  recognition.onend = () => {
-    setListening(false);
-  };
+    startRecording();
+  });
 }
 
 function escapeHtml(str) {
