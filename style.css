@@ -149,6 +149,12 @@ textarea {
   font-family: inherit;
 }
 .chat-actions { display: flex; gap: 8px; }
+.mic-hint {
+  min-height: 16px;
+  margin: 0;
+  font-size: 0.78rem;
+  color: #2563eb;
+}
 .icon-btn {
   font-size: 1.3rem;
   background: white;

@@ -147,9 +147,10 @@ function renderChat() {
     <div class="chat-input">
       <textarea id="msgInput" placeholder="Digite ou toque no microfone para falar..." rows="2"></textarea>
       <div class="chat-actions">
-        <button id="micBtn" class="icon-btn" type="button">🎙️</button>
+        <button id="micBtn" class="icon-btn" type="button" title="Toque pra começar a falar, toque de novo pra parar">🎙️</button>
         <button id="sendBtn" class="primary-btn" type="button">Enviar</button>
       </div>
+      <p class="mic-hint" id="micHint"></p>
       <button id="endBtn" class="end-btn" type="button">Encerrar e avaliar</button>
     </div>
   `;
@@ -490,6 +491,7 @@ function formatarData(iso) {
 function setupMic() {
   const micBtn = document.getElementById('micBtn');
   const input = document.getElementById('msgInput');
+  const hint = document.getElementById('micHint');
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
@@ -502,31 +504,50 @@ function setupMic() {
   const recognition = new SpeechRecognition();
   recognition.lang = 'pt-BR';
   recognition.interimResults = false;
-  recognition.continuous = false;
+  // "continuous" impede o reconhecimento de encerrar sozinho na primeira pausa da fala (respirar,
+  // pensar um pouco) — sem isso, qualquer silêncio curto já cortava a gravação no meio da frase.
+  // Com isso ligado, quem decide quando parar é a pessoa, clicando de novo no microfone.
+  recognition.continuous = true;
 
+  // Guarda o texto que já estava no campo antes de começar a gravar — com "continuous" o
+  // onresult dispara várias vezes (um evento por trecho reconhecido), não uma vez só no final,
+  // então precisamos recompor o texto completo a cada evento em vez de só concatenar.
+  let baseText = '';
   let listening = false;
+
+  function setListening(value) {
+    listening = value;
+    micBtn.classList.toggle('listening', value);
+    hint.textContent = value ? 'Ouvindo... toque no microfone de novo quando terminar de falar.' : '';
+  }
+
   micBtn.addEventListener('click', () => {
-    if (listening) return;
-    listening = true;
-    micBtn.classList.add('listening');
+    if (listening) {
+      try { recognition.stop(); } catch (e) {}
+      return;
+    }
+    baseText = input.value;
+    setListening(true);
     try {
       recognition.start();
     } catch (e) {
-      listening = false;
-      micBtn.classList.remove('listening');
+      setListening(false);
     }
   });
   recognition.onresult = (e) => {
-    const transcript = e.results[0][0].transcript;
-    input.value = (input.value ? input.value + ' ' : '') + transcript;
+    let transcript = '';
+    for (let i = 0; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript;
+    }
+    input.value = baseText ? `${baseText} ${transcript}` : transcript;
   };
   recognition.onerror = () => {
-    listening = false;
-    micBtn.classList.remove('listening');
+    // "no-speech" e afins acontecem o tempo todo em silêncios normais — não são erro de verdade,
+    // só reseta o estado do botão sem interromper com alerta.
+    setListening(false);
   };
   recognition.onend = () => {
-    listening = false;
-    micBtn.classList.remove('listening');
+    setListening(false);
   };
 }
 
