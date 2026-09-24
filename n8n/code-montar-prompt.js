@@ -196,6 +196,12 @@ nesta ordem — as 6 são obrigatórias, nenhuma é opcional ou dispensável, in
    Essa seção 6 é lida por um programa, não por uma pessoa — por isso não pode faltar em nenhuma
    avaliação, mesmo que as seções anteriores já tenham comunicado tudo em texto.
 
+ATENÇÃO — isso é um requisito técnico obrigatório, não uma sugestão de estilo: se em algum momento
+você perceber que está perto do limite de tamanho da resposta, corte as seções 1, 2 ou 5 (deixe os
+pontos mais curtos, menos exemplos) para garantir espaço, mas NUNCA termine a resposta sem incluir
+o bloco \`\`\`json da seção 6. Uma avaliação sem esse bloco é considerada incompleta e falha, mesmo
+que o texto das seções 1 a 5 esteja ótimo.
+
 Não infle notas por gentileza — o valor do exercício é apontar causa raiz pro vendedor evoluir de
 verdade.`;
 }
@@ -262,7 +268,10 @@ if (mode === 'copilot') {
     messages = history.length > 0
       ? [...history, { role: 'user', content: 'Encerre a simulação e faça a avaliação completa agora, seguindo exatamente o formato pedido.' }]
       : [{ role: 'user', content: 'A ligação terminou sem nenhuma fala do vendedor — avalie isso mesmo assim, apontando que não houve tentativa de abordagem.' }];
-    maxTokens = 3000;
+    // Alto de propósito: max_tokens é só um teto, não é cobrado se a resposta não usar tudo.
+    // Isso dá bastante margem pro "thinking" do modelo + o texto completo + o bloco de notas
+    // no final, sem risco de cortar a resposta antes do bloco JSON obrigatório da seção 6.
+    maxTokens = 5000;
   }
 } else {
   return [{ json: { error: true, message: 'Modo inválido.' } }];
