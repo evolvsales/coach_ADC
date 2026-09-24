@@ -6,6 +6,11 @@ const N8N_WEBHOOK_URL = 'https://143.95.222.247.nip.io/webhook/coach-prospeccao'
 // URL do segundo webhook (leitura do histórico de sessões pro Dashboard) — nó "Webhook Dashboard".
 const N8N_DASHBOARD_URL = 'https://143.95.222.247.nip.io/webhook/coach-prospeccao-dashboard';
 
+// Ponte entre sendMessage() e setupMic(): permite que "Enviar" encerre uma gravação que ainda
+// estivesse rodando escondida, em vez de deixá-la solta capturando a próxima fala junto com a
+// anterior. setupMic() preenche isso toda vez que a tela de chat é (re)montada.
+const micControl = { stop: null };
+
 // Lista pública dos cenários — mantenha sincronizada com n8n/code-montar-prompt.js no backend.
 // Só o essencial fica aqui (nada sobre ceticismo/objeção), pra não entregar "cola" ao vendedor.
 const PERSONA_LIST = [
@@ -182,6 +187,10 @@ function renderChatLog() {
 
 async function sendMessage() {
   const input = document.getElementById('msgInput');
+  // Se o microfone ainda estiver escutando (a pessoa esqueceu de tocar nele de novo pra parar),
+  // encerra a gravação agora — sem isso, ela continua rodando em segundo plano e o texto dela
+  // reaparece grudado na próxima gravação.
+  if (micControl.stop) micControl.stop();
   const text = input.value.trim();
   if (!text || state.loading) return;
 
@@ -503,6 +512,7 @@ function setupMic() {
     micBtn.addEventListener('click', () => {
       alert('Seu navegador não suporta ditado por voz embutido. Use o microfone do próprio teclado do celular para falar direto no campo de texto.');
     });
+    micControl.stop = null;
     return;
   }
 
@@ -518,40 +528,54 @@ function setupMic() {
     hint.textContent = value ? 'Ouvindo... toque no microfone de novo quando terminar de falar.' : '';
   }
 
+  // Marca a gravação como "aposentada" ANTES de mandar parar — o navegador ainda pode disparar
+  // um onresult final chegando um instante depois do stop() (é assíncrono), e sem essa trava
+  // esse resultado tardio escrevia por cima do campo mesmo depois de já termos avançado pra
+  // outra coisa (ex: a pessoa já clicou "Enviar" e começou a gravar a mensagem seguinte).
+  function stopRecording() {
+    if (recognition) recognition._retired = true;
+    try { recognition && recognition.stop(); } catch (e) {}
+    setListening(false);
+  }
+
   // Cria uma instância NOVA a cada gravação, em vez de reaproveitar uma só pra vida toda da tela
   // de chat. Reaproveitar a mesma instância entre start()/stop() sucessivos fazia o texto de uma
   // gravação anterior (já enviada como mensagem) voltar a aparecer grudado na gravação seguinte —
   // o navegador nem sempre limpa direito o histórico de resultados internos ao reiniciar a mesma
   // instância. Uma instância nova por gravação garante que cada uma começa do zero.
   function startRecording() {
-    recognition = new SpeechRecognition();
-    recognition.lang = 'pt-BR';
-    recognition.interimResults = false;
+    const rec = new SpeechRecognition();
+    recognition = rec;
+    rec._retired = false;
+    rec.lang = 'pt-BR';
+    rec.interimResults = false;
     // "continuous" impede o reconhecimento de encerrar sozinho na primeira pausa da fala (respirar,
     // pensar um pouco) — sem isso, qualquer silêncio curto já cortava a gravação no meio da frase.
-    // Com isso ligado, quem decide quando parar é a pessoa, clicando de novo no microfone.
-    recognition.continuous = true;
+    // Com isso ligado, quem decide quando parar é a pessoa, clicando de novo no microfone (ou
+    // mandando a mensagem, que também encerra — ver micControl.stop mais abaixo).
+    rec.continuous = true;
 
-    recognition.onresult = (e) => {
+    rec.onresult = (e) => {
+      if (rec._retired) return; // ignora resultado tardio de uma gravação que já foi encerrada
       let transcript = '';
       for (let i = 0; i < e.results.length; i++) {
         transcript += e.results[i][0].transcript;
       }
       input.value = baseText ? `${baseText} ${transcript}` : transcript;
     };
-    recognition.onerror = () => {
+    rec.onerror = () => {
       // "no-speech" e afins acontecem o tempo todo em silêncios normais — não são erro de verdade,
       // só reseta o estado do botão sem interromper com alerta.
       setListening(false);
     };
-    recognition.onend = () => {
+    rec.onend = () => {
       setListening(false);
     };
 
     baseText = input.value;
     setListening(true);
     try {
-      recognition.start();
+      rec.start();
     } catch (e) {
       setListening(false);
     }
@@ -559,11 +583,17 @@ function setupMic() {
 
   micBtn.addEventListener('click', () => {
     if (listening) {
-      try { recognition.stop(); } catch (e) {}
+      stopRecording();
       return;
     }
     startRecording();
   });
+
+  // Deixa sendMessage() (fora desta função) encerrar uma gravação esquecida em andamento antes
+  // de enviar a mensagem — é o que evita a gravação antiga "vazar" pra dentro da próxima.
+  micControl.stop = () => {
+    if (listening) stopRecording();
+  };
 }
 
 function escapeHtml(str) {
