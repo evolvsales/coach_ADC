@@ -51,7 +51,7 @@ function setVendedorNome(nome) {
 }
 
 let state = {
-  activeTab: 'treino', // 'treino' | 'copiloto' | 'dashboard'
+  activeTab: 'treino', // 'treino' | 'copiloto' | 'reuniao' | 'dashboard'
   vendedorNome: getVendedorNome(),
 
   // aba "Treinar"
@@ -93,6 +93,11 @@ function render() {
   if (state.activeTab === 'copiloto') {
     if (state.copilotoScreen === 'form') renderCopilotoForm();
     else renderCopilotoResult();
+    return;
+  }
+
+  if (state.activeTab === 'reuniao') {
+    renderReuniao();
     return;
   }
 

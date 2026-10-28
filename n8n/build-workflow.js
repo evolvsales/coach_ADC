@@ -88,19 +88,18 @@ const workflow = {
       position: [900, 420],
       parameters: {
         method: 'POST',
-        url: 'https://api.anthropic.com/v1/messages',
+        url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
         sendHeaders: true,
         headerParameters: {
           parameters: [
             { name: 'content-type', value: 'application/json' },
-            { name: 'anthropic-version', value: '2023-06-01' },
-            { name: 'x-api-key', value: '={{ $vars.ANTHROPIC_API_KEY }}' },
+            { name: 'x-goog-api-key', value: '={{ $vars.GEMINI_API_KEY }}' },
           ],
         },
         sendBody: true,
         specifyBody: 'json',
         jsonBody:
-          '={{ { "model": "claude-sonnet-5", "max_tokens": $json.maxTokens, "system": $json.systemPrompt, "messages": $json.messages } }}',
+          '={{ { "systemInstruction": { "parts": [{ "text": $json.systemPrompt }] }, "contents": $json.messages.map((m, i) => ({ "role": m.role === "assistant" ? "model" : "user", "parts": [{ "text": m.content }].concat(($json.audio && i === $json.messages.length - 1) ? [{ "inlineData": { "mimeType": $json.audio.mimeType, "data": $json.audio.data } }] : []) })), "generationConfig": Object.assign({ "maxOutputTokens": $json.maxTokens + 1024 }, $json.jsonMode ? { "responseMimeType": "application/json" } : {}) } }}',
         options: {
           response: {
             response: {
